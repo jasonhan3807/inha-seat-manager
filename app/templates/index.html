@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f4e9c">
+  <title>INHA SEAT MANAGER</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ version }}">
+</head>
+<body data-demo="{{ '1' if is_demo else '0' }}">
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">▦</span>
+      <span>INHA SEAT MANAGER</span>
+      {% if is_demo %}<span class="badge demo" title="모의 데이터입니다. 실제 학교 좌석 정보가 아닙니다.">DEMO</span>{% endif %}
+    </div>
+    <div class="conn" id="conn" role="status" aria-live="polite"><span class="dot"></span><span class="txt">연결 확인 중…</span></div>
+  </header>
+
+  {% if is_demo %}
+  <div class="demo-banner" role="note">
+    <strong>DEMO 모드</strong> · 화면의 열람실·좌석 배치·좌석 상태는 모두 <strong>가상 데이터</strong>이며 실제 정석학술정보관 구조가 아닙니다.
+  </div>
+  {% endif %}
+
+  <nav class="tabs" role="tablist" aria-label="메뉴">
+    <button role="tab" data-tab="dashboard" aria-selected="true">대시보드</button>
+    <button role="tab" data-tab="seats">좌석 배치도</button>
+    <button role="tab" data-tab="watches">희망 좌석</button>
+    <button role="tab" data-tab="notifications">알림 <span class="count" id="unread" hidden>0</span></button>
+    <button role="tab" data-tab="history">이력</button>
+    <button role="tab" data-tab="settings">설정·상태</button>
+  </nav>
+
+  <main>
+    <div id="toast" class="toast" role="alert" hidden></div>
+
+    <!-- 대시보드 -->
+    <section id="tab-dashboard" class="panel">
+      <div class="grid2">
+        <div class="card">
+          <h2>모니터링</h2>
+          <p class="big" id="d-monitor">-</p>
+          <p class="muted" id="d-monitor-sub"></p>
+          <div class="row">
+            <button class="btn primary" id="d-start">▶ 시작</button>
+            <button class="btn" id="d-stop">■ 중지</button>
+            <button class="btn" id="d-check">↻ 지금 확인</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>희망 좌석</h2>
+          <p class="big" id="d-watches">-</p>
+          <p class="muted">빈자리가 생기면 알려드립니다.</p>
+          <button class="btn" data-goto="watches">관리하기</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>열람실 선택</h2>
+        <div id="room-list" class="room-list"><p class="muted">불러오는 중…</p></div>
+      </div>
+      <div class="card">
+        <h2>최근 알림</h2>
+        <ul id="d-notes" class="list"></ul>
+      </div>
+      <div class="card">
+        <h2>좌석 배정</h2>
+        <p>실제 좌석 배정은 <strong>공식 학교 서비스</strong>에서 직접 진행하세요.</p>
+        <a class="btn primary" href="{{ official_url }}" target="_blank" rel="noopener noreferrer">공식 정석학술정보관 페이지 열기 ↗</a>
+      </div>
+    </section>
+
+    <!-- 좌석 배치도 -->
+    <section id="tab-seats" class="panel" hidden>
+      <div class="card">
+        <div class="row between">
+          <label>열람실 <select id="room-select"></select></label>
+          <span class="muted" id="seat-fetched"></span>
+        </div>
+        <div class="legend" aria-label="범례">
+          <span class="seat-chip available">○ 빈자리</span>
+          <span class="seat-chip occupied">● 사용 중</span>
+          <span class="seat-chip away">◐ 자리비움</span>
+          <span class="seat-chip disabled">✕ 사용 불가</span>
+          <span class="seat-chip watched-chip">★ 희망 좌석</span>
+        </div>
+        <p class="summary" id="seat-summary"></p>
+        {% if is_demo %}<p class="demo-note">DEMO 배치도 — 실제 열람실 배치와 다릅니다.</p>{% endif %}
+        <div id="seat-map" class="seat-map" role="grid" aria-label="좌석 배치도"></div>
+      </div>
+    </section>
+
+    <!-- 희망 좌석 -->
+    <section id="tab-watches" class="panel" hidden>
+      <div class="card">
+        <h2>희망 좌석 목록</h2>
+        <p class="muted">좌석 배치도에서 좌석을 눌러 추가할 수 있습니다.</p>
+        <ul id="watch-list" class="list"></ul>
+      </div>
+    </section>
+
+    <!-- 알림 -->
+    <section id="tab-notifications" class="panel" hidden>
+      <div class="card">
+        <div class="row between">
+          <h2>알림 내역</h2>
+          <button class="btn" id="mark-read">모두 읽음</button>
+        </div>
+        <ul id="note-list" class="list"></ul>
+      </div>
+    </section>
+
+    <!-- 이력 -->
+    <section id="tab-history" class="panel" hidden>
+      <div class="card">
+        <div class="row between">
+          <h2>조회·배정 이력</h2>
+          <select id="history-kind" aria-label="이력 종류">
+            <option value="">전체</option>
+            <option value="query">조회</option>
+            <option value="query_error">조회 실패</option>
+            <option value="monitor">모니터링</option>
+            <option value="watch">희망 좌석</option>
+            <option value="assign">배정</option>
+          </select>
+        </div>
+        <ul id="history-list" class="list compact"></ul>
+      </div>
+    </section>
+
+    <!-- 설정·상태 -->
+    <section id="tab-settings" class="panel" hidden>
+      <div class="card">
+        <h2>설정</h2>
+        <label class="field">조회 간격(초)
+          <input type="number" id="interval" min="1" inputmode="numeric">
+        </label>
+        <p class="muted" id="interval-help"></p>
+        <button class="btn primary" id="save-interval">저장</button>
+        <hr>
+        <label class="field">브라우저 알림
+          <span id="perm-state" class="muted"></span>
+        </label>
+        <button class="btn" id="enable-notify">브라우저 알림 허용하기</button>
+        <label class="check"><input type="checkbox" id="sound"> 알림 소리</label>
+      </div>
+      <div class="card">
+        <h2>시스템 상태</h2>
+        <dl id="sys" class="kv"></dl>
+      </div>
+      {% if is_demo %}
+      <div class="card">
+        <h2>DEMO 도구</h2>
+        <p class="muted">오류 처리를 확인하기 위한 테스트 기능입니다.</p>
+        <button class="btn" id="demo-fail">다음 조회 3회 실패시키기</button>
+      </div>
+      {% endif %}
+    </section>
+  </main>
+
+  <!-- 좌석 상세 -->
+  <dialog id="seat-dialog">
+    <form method="dialog" class="dialog-body">
+      <h3 id="sd-title">좌석</h3>
+      <p id="sd-status" class="status-line"></p>
+      <p id="sd-room" class="muted"></p>
+      <div class="col">
+        <button class="btn primary" id="sd-watch" value="watch">★ 희망 좌석에 추가</button>
+        <a class="btn" id="sd-official" href="{{ official_url }}" target="_blank" rel="noopener noreferrer">공식 페이지에서 배정 ↗</a>
+        {% if is_demo %}<button class="btn" id="sd-assign" value="assign">DEMO 배정 시뮬레이션</button>{% endif %}
+        <button class="btn ghost" value="close">닫기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <footer class="foot">v{{ version }} · 개인용 도구 · 학교 공식 서비스가 아닙니다</footer>
+  <script src="/static/app.js?v={{ version }}"></script>
+</body>
+</html>

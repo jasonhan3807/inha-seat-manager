@@ -1,0 +1,8 @@
+# 실행에 필요한 라이브러리 (버전 고정)
+fastapi==0.162.2
+uvicorn[standard]==0.54.0
+Jinja2==3.1.6
+python-dotenv==1.2.4
+# 테스트
+pytest==9.2.0
+httpx==0.28.1

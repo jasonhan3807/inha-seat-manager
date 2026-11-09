@@ -1,0 +1,23 @@
+# 비밀정보
+.env
+.env.*
+!.env.example
+# 가상환경 / 캐시
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# 로컬 데이터
+data/
+*.db
+*.db-journal
+# 테스트 산출물
+ui-check/
+test-results/
+playwright-report/
+# 기타
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+node_modules/
