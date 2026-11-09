@@ -11,10 +11,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-from app.config import Settings
+from app.config import ABSOLUTE_MIN_INTERVAL, Settings
 from app.database import Database
 from app.database.db import now_iso
 from app.notifications import build_seat_available_message, build_system_message
@@ -24,6 +25,7 @@ from app.providers.base import STATUS_LABEL
 log = logging.getLogger(__name__)
 
 MAX_BACKOFF_FACTOR = 8
+NO_WATCHES_REASON = "희망 좌석이 모두 삭제되어 모니터링을 중지했습니다."
 
 
 class SeatMonitor:
@@ -43,10 +45,16 @@ class SeatMonitor:
         self._task: asyncio.Task | None = None
         self._wake = asyncio.Event()
         self._loop: asyncio.AbstractEventLoop | None = None
+        # 조회는 한 번에 하나만 (백그라운드 + 수동 확인이 겹쳐 중복 알림이 나는 것을 방지)
+        self._check_lock = threading.Lock()
+        # 시작할 때마다 1씩 증가. 이전 실행의 루프는 세대가 바뀌면 스스로 끝난다 (루프 2개 동시 실행 방지).
+        self._generation = 0
 
     # ---------- 설정 ----------
     def clamp_interval(self, seconds: int) -> int:
-        return max(self.settings.min_interval, min(self.settings.max_interval, int(seconds)))
+        # settings 값과 관계없이 ABSOLUTE_MIN_INTERVAL 아래로는 절대 내려가지 않는다 (이중 안전장치).
+        low = max(ABSOLUTE_MIN_INTERVAL, self.settings.min_interval)
+        return max(low, min(self.settings.max_interval, int(seconds)))
 
     def set_interval(self, seconds: int) -> int:
         self.interval = self.clamp_interval(seconds)
@@ -60,12 +68,19 @@ class SeatMonitor:
     # ---------- 1회 조회 ----------
     def check_once(self) -> dict:
         """희망 좌석을 한 번 확인한다. 동기 함수라 테스트하기 쉽다."""
-        self.last_check_at = now_iso()
-        self.check_count += 1
+        with self._check_lock:
+            return self._check_once_locked()
+
+    def _check_once_locked(self) -> dict:
         watches = self.db.list_watches()
         result = {"checked_rooms": 0, "notified": [], "error": None}
         if not watches:
+            # 희망 좌석이 없으면 조회하지 않는다. 실행 중이었다면 멈춘다 (삭제 경쟁 상황 대비).
+            if self.running:
+                self.stop(NO_WATCHES_REASON)
             return result
+        self.last_check_at = now_iso()
+        self.check_count += 1
 
         by_room: dict[str, list[dict]] = defaultdict(list)
         for w in watches:
@@ -78,8 +93,8 @@ class SeatMonitor:
                 result["checked_rooms"] += 1
                 for w in room_watches:
                     seat = seats.get(w["seat_id"])
-                    if seat is None:
-                        continue
+                    if seat is None or self.db.get_watch(w["id"]) is None:
+                        continue  # 조회 중 삭제된 희망 좌석은 알리지 않는다
                     if self._should_notify(w, seat.status):
                         detected = datetime.now()
                         msg = build_seat_available_message(
@@ -144,9 +159,15 @@ class SeatMonitor:
             self.db.add_notification("system", build_system_message(f"{reason} 마지막 오류: {self.last_error}"))
 
     # ---------- 시작/중지 ----------
+    def on_watches_changed(self) -> None:
+        """희망 좌석이 삭제된 뒤 호출한다. 남은 좌석이 없으면 모니터링을 멈춘다."""
+        if self.running and not self.db.list_watches():
+            self.stop(NO_WATCHES_REASON)
+
     def start(self) -> None:
         if self.running:
             return
+        self._generation += 1
         self.running = True
         self.stopped_reason = None
         self.consecutive_failures = 0
@@ -158,7 +179,7 @@ class SeatMonitor:
             return  # 이벤트 루프 밖(테스트)에서는 상태만 바꾼다
         self._loop = loop
         self._wake = asyncio.Event()
-        self._task = loop.create_task(self._run())
+        self._task = loop.create_task(self._run(self._generation, self._wake))
 
     def stop(self, reason: str = "사용자가 중지함") -> None:
         if not self.running:
@@ -179,6 +200,7 @@ class SeatMonitor:
             pass
 
     async def shutdown(self) -> None:
+        self._generation += 1
         self.running = False
         self._signal()
         if self._task:
@@ -187,18 +209,22 @@ class SeatMonitor:
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 self._task.cancel()
 
-    async def _run(self) -> None:
-        while self.running:
+    def _active(self, generation: int) -> bool:
+        return self.running and self._generation == generation
+
+    async def _run(self, generation: int, wake: asyncio.Event) -> None:
+        # wake 는 이 실행 전용 이벤트다. stop() 은 running=False 를 먼저 바꾼 뒤 wake 를 깨우므로,
+        # 조회 직후의 _active() 검사나 대기 중 깨우기 둘 중 하나에서 반드시 멈춘다.
+        while self._active(generation):
             try:
                 await asyncio.to_thread(self.check_once)
             except Exception as exc:  # 예상치 못한 오류도 루프를 죽이지 않는다
                 log.exception("monitor loop error")
                 self._on_failure(exc)
-            if not self.running:
+            if not self._active(generation):
                 break
-            self._wake.clear()
             try:
-                await asyncio.wait_for(self._wake.wait(), timeout=self.next_delay())
+                await asyncio.wait_for(wake.wait(), timeout=self.next_delay())
             except asyncio.TimeoutError:
                 pass
 
@@ -206,7 +232,7 @@ class SeatMonitor:
         return {
             "running": self.running,
             "interval": self.interval,
-            "min_interval": self.settings.min_interval,
+            "min_interval": max(ABSOLUTE_MIN_INTERVAL, self.settings.min_interval),
             "next_delay": self.next_delay(),
             "consecutive_failures": self.consecutive_failures,
             "max_failures": self.settings.max_consecutive_failures,

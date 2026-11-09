@@ -142,7 +142,8 @@ def remove_watch(watch_id: int, request: Request):
     if not w or not st.db.remove_watch(watch_id):
         raise HTTPException(404, "등록되지 않은 희망 좌석입니다.")
     st.db.log("watch", f"희망 좌석 삭제: {w['room_id']} {w['seat_label']}")
-    return {"ok": True}
+    st.monitor.on_watches_changed()  # 마지막 희망 좌석이면 모니터링 중지
+    return {"ok": True, "monitor_running": st.monitor.running}
 
 
 # ---------- 모니터링 ----------

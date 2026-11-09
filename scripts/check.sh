@@ -13,7 +13,7 @@ if [ "${1:-}" = "--ui" ]; then
   echo "== 2. UI 점검 (Playwright)"
   TMP="$(mktemp -d)"
   PORT=8765
-  DB_PATH="$TMP/ui.db" PORT=$PORT MONITOR_MIN_INTERVAL_SECONDS=5 MONITOR_INTERVAL_SECONDS=5 "$PY" -m app.main >"$TMP/server.log" 2>&1 &
+  DB_PATH="$TMP/ui.db" PORT=$PORT MONITOR_INTERVAL_SECONDS=10 "$PY" -m app.main >"$TMP/server.log" 2>&1 &
   PID=$!
   trap 'kill $PID 2>/dev/null || true' EXIT
   for _ in $(seq 1 40); do curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null && break; sleep 0.25; done

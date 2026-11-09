@@ -6,10 +6,10 @@ _실행일: 2026-11-09 · 환경: Ubuntu 24.04, Python 3.13.18, Chromium(Playwri
 
 | 구분 | 결과 |
 |---|---|
-| 자동 테스트 (pytest) | **36 / 36 통과** |
+| 자동 테스트 (pytest) | **59 / 59 통과** (2026-11-09 Codex 리뷰 반영 후 재실행, 3회 반복) |
 | 브라우저 UI 점검 (PC 1280px, iPhone 13) | **통과** — 콘솔 오류 0, 가로 넘침 없음 |
 | 실제 서버 수동 시나리오 | **통과** (아래) |
-| Codex 독립 리뷰 | **미실행** — Codex 로그인 필요 |
+| Codex 독립 리뷰 | 1차 리뷰 MEDIUM 2건 반영 (docs/AI_COLLABORATION.md #2) |
 | 실제 학교 시스템 연동 | **해당 없음** — 연동 비활성 |
 
 ## 요구 항목별 결과
@@ -29,6 +29,9 @@ _실행일: 2026-11-09 · 환경: Ubuntu 24.04, Python 3.13.18, Chromium(Playwri
 | 공식 연동 비활성 시 | official 모드: 화면 정상, 조회 503, 배정 403, 모니터 즉시 중지 | ✅ |
 | 모바일 레이아웃 | iPhone 13 에뮬레이션, 좌석 배치도 넘침 검사 | ✅ |
 | 보안·설정 검증 | 교차 출처 POST 403, 폼 본문 거부, 보안 헤더, 간격 최소값 강제 | ✅ |
+| 최소 조회 간격 하한 | 환경변수 0/1/5/9/-30 → 실제 간격 10초, 서버 실행 시 경고 로그 확인 | ✅ |
+| 마지막 희망 좌석 삭제 | 모니터 중지 + 백그라운드 작업 종료 + 이후 조회 0회 (단위·API·실서버 12초 관찰) | ✅ |
+| 경쟁 조건 | 조회 중 삭제, 빠른 중지→재시작(루프 1개), 동시 조회 4개(알림 1건) | ✅ |
 | 배정 확인 절차 | confirm 없으면 400, 빈자리 아니면 409, 이력에 [DEMO] | ✅ |
 
 ## 실서버 시나리오 기록
@@ -56,6 +59,8 @@ scripts/check.sh --ui
 ```
 
 ## 테스트 목록
+- `tests/test_config.py` — 설정 검증 (16개, 파라미터 포함)
+- `tests/test_monitor_lifecycle.py` — 시작/중지/삭제 경쟁 조건 (7개)
 - `tests/test_api.py::test_index_page_has_demo`
 - `tests/test_api.py::test_static_files`
 - `tests/test_api.py::test_health_and_system`

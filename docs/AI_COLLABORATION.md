@@ -51,3 +51,23 @@ MCP는 쓰지 않는다. 에이전트 간 호출은 위 스크립트로 직접 �
   - [MEDIUM] 모바일에서 좌석 배치도 오른쪽이 잘림 → 좁은 화면용 좌석 크기 적용, UI 점검에 넘침 검사 추가
 - **테스트 결과**: pytest 36/36 통과, PC·모바일 UI 점검 통과 (TEST_REPORT.md)
 - **최종 상태**: Codex 리뷰 대기. 사용자가 `codex login` 후 `scripts/codex_review.sh` 실행 필요
+
+---
+
+## 협업 작업 #2 — Codex 리뷰 MEDIUM 2건 반영
+
+- **작업 목표**: Codex 독립 리뷰(사용자가 실행 후 전달)의 MEDIUM 지적 2건 수정
+- **Codex 검토 결과 (사용자 전달)**:
+  - [MEDIUM] `MONITOR_MIN_INTERVAL_SECONDS` 로 최소 조회 간격을 10초 미만으로 낮출 수 있음
+  - [MEDIUM] 모니터링 중 마지막 희망 좌석을 삭제해도 모니터링이 계속 실행됨
+- **Claude의 판단**: 둘 다 타당. 학교 시스템 부담·불필요한 조회와 직결되므로 수정.
+  조사 중 같은 영역의 경쟁 조건 2건도 추가로 발견해 함께 수정:
+  - 빠른 중지→재시작 시 이전 백그라운드 루프가 살아 있어 루프 2개가 동시에 조회할 수 있음
+  - 수동 "지금 확인"과 백그라운드 조회가 겹치면 같은 빈자리 알림이 중복될 수 있음
+- **수정 내역**:
+  - `app/config.py`: 코드 상수 `ABSOLUTE_MIN_INTERVAL=10` 하한, 모든 숫자 설정 범위 검증 + 경고 로그, 숫자 아닌 값은 기본값, 알 수 없는 `SEAT_PROVIDER` 는 mock
+  - `app/monitoring/monitor.py`: `clamp_interval` 에도 10초 하한(이중 안전장치), `on_watches_changed()` 추가, 좌석 0개면 조회 없이 중지, 조회 직렬화 잠금, 실행 세대(generation) 번호로 이전 루프 자동 종료, 조회 중 삭제된 좌석은 알리지 않음
+  - `app/routers/api.py`: 희망 좌석 삭제 후 `on_watches_changed()` 호출, 응답에 `monitor_running` 포함
+  - `app/static/app.js`: 삭제로 모니터링이 멈추면 안내 문구 + 상태 즉시 갱신
+- **테스트 결과**: pytest 59/59 (기존 36 + 신규 23), 3회 반복 통과. 수정 코드를 일부러 되돌리면 해당 테스트가 실패하는 것 확인. UI 점검 통과.
+- **최종 상태**: 수정 완료, 커밋 전 (사용자 요청). Codex 재리뷰 권장.

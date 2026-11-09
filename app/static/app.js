@@ -184,8 +184,12 @@ async function loadWatches() {
       el("div", { class: "time" }, `마지막 상태: ${w.last_status ? { available: "빈자리", occupied: "사용 중", away: "자리비움", disabled: "사용 불가" }[w.last_status] : "미확인"}${w.last_notified_at ? " · 마지막 알림 " + fmtTime(w.last_notified_at) : ""}`)),
     el("button", { class: "btn danger", onclick: async () => {
       if (!confirm(`${w.room_name} ${w.seat_label}을(를) 희망 좌석에서 삭제할까요?`)) return;
-      try { await api(`/watches/${w.id}`, { method: "DELETE" }); toast("삭제했습니다."); } catch (e) { toast(e.message, true); }
-      loadWatches();
+      try {
+        const r = await api(`/watches/${w.id}`, { method: "DELETE" });
+        const wasRunning = state.sys && state.sys.monitor.running;
+        toast(wasRunning && !r.monitor_running ? "삭제했습니다. 희망 좌석이 없어 모니터링을 중지했습니다." : "삭제했습니다.");
+      } catch (e) { toast(e.message, true); }
+      loadWatches(); refreshSystem();
     } }, "삭제"))));
 }
 
